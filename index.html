@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Traffic Flow Simulator</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <header class="header">
+        <div>
+            <h1>TRAFFIC FLOW SIMULATOR</h1>
+            <p class="header-subtitle">Roundabout vs Traffic Lights Comparison</p>
+        </div>
+        <div class="legend">
+            <div class="legend-item">
+                <div class="legend-color fast"></div>
+                <span class="legend-text">Fast</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color medium"></div>
+                <span class="legend-text">Medium</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color slow"></div>
+                <span class="legend-text">Slow/Stopped</span>
+            </div>
+        </div>
+    </header>
+    
+    <main class="main-container">
+        <div class="simulation-container">
+            <!-- Roundabout Panel -->
+            <div class="simulation-panel">
+                <div class="panel-header">
+                    <h2 class="panel-title roundabout">◉ ROUNDABOUT</h2>
+                    <div class="panel-stats">
+                        <div class="stat-item">
+                            <span class="stat-label">Throughput:</span>
+                            <span class="stat-value highlight-cyan" id="roundabout-throughput">0</span>
+                            <span class="stat-label">/min</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Avg Wait:</span>
+                            <span class="stat-value" id="roundabout-wait">0.0s</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Efficiency:</span>
+                            <span class="stat-value highlight-cyan" id="roundabout-efficiency">100%</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="canvas-wrapper">
+                    <canvas id="roundabout-canvas"></canvas>
+                </div>
+            </div>
+            
+            <!-- Traffic Light Panel -->
+            <div class="simulation-panel">
+                <div class="panel-header">
+                    <h2 class="panel-title traffic-light">◈ TRAFFIC LIGHTS</h2>
+                    <div class="panel-stats">
+                        <div class="stat-item">
+                            <span class="stat-label">Throughput:</span>
+                            <span class="stat-value highlight-green" id="traffic-throughput">0</span>
+                            <span class="stat-label">/min</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Avg Wait:</span>
+                            <span class="stat-value" id="traffic-wait">0.0s</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Efficiency:</span>
+                            <span class="stat-value highlight-green" id="traffic-efficiency">100%</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="canvas-wrapper">
+                    <canvas id="traffic-light-canvas"></canvas>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Controls -->
+        <div class="controls-container">
+            <div class="control-group">
+                <span class="control-label">Simulation Speed</span>
+                <input type="range" id="speed-slider" min="0.5" max="3" step="0.1" value="1">
+                <span class="control-value" id="speed-value">1.0x</span>
+            </div>
+            
+            <div class="control-group">
+                <span class="control-label">Spawn Rate</span>
+                <input type="range" id="spawn-slider" min="0.5" max="4" step="0.1" value="1.5">
+                <span class="control-value" id="spawn-value">1.5/s</span>
+            </div>
+            
+            <div class="control-group">
+                <span class="control-label">Light Duration</span>
+                <input type="range" id="light-slider" min="2000" max="8000" step="500" value="4000">
+                <span class="control-value" id="light-value">4.0s</span>
+            </div>
+            
+            <div class="control-group">
+                <button class="btn primary" id="play-pause-btn">⏸ Pause</button>
+                <button class="btn" id="reset-btn">↺ Reset</button>
+            </div>
+        </div>
+    </main>
+    
+    <script type="module" src="js/main.js"></script>
+</body>
+</html>
+
