@@ -9,13 +9,45 @@
 <body>
     <div class="container">
         <h1>Streetlight Simulator</h1>
-        <canvas id="canvas" width="1000" height="500"></canvas>
+        
+        <div class="metrics">
+            <div class="metric-with-graph">
+                <div class="metric">
+                    <span class="metric-value" id="queueLength">0</span>
+                    <span class="metric-label">Cars in Queue</span>
+                </div>
+                <canvas id="queueGraph" width="150" height="60"></canvas>
+            </div>
+            <div class="metric-with-graph">
+                <div class="metric">
+                    <span class="metric-value" id="avgWaitTime">0.0s</span>
+                    <span class="metric-label">Avg Wait Time</span>
+                </div>
+                <canvas id="waitGraph" width="150" height="60"></canvas>
+            </div>
+            <div class="metric-with-graph">
+                <div class="metric">
+                    <span class="metric-value" id="carsPassedCurrent">0</span>
+                    <span class="metric-label">Cars Passing (Current)</span>
+                </div>
+                <canvas id="currentGraph" width="150" height="60"></canvas>
+            </div>
+            <div class="metric-with-graph">
+                <div class="metric">
+                    <span class="metric-value" id="carsPassedLastGreen">0</span>
+                    <span class="metric-label">Cars Passed (Last Cycle)</span>
+                </div>
+                <canvas id="cycleGraph" width="150" height="60"></canvas>
+            </div>
+        </div>
+        
+        <canvas id="canvas" width="1000" height="400"></canvas>
         
         <div class="controls">
             <div class="control">
                 <label>Spawn Rate</label>
-                <input type="range" id="spawnRate" min="0.5" max="3" step="0.1" value="1.5">
-                <span id="spawnRateValue">1.5/s</span>
+                <input type="range" id="spawnRate" min="0.5" max="3" step="0.1" value="1">
+                <span id="spawnRateValue">1/s</span>
             </div>
             <div class="control">
                 <label>Car Speed</label>
@@ -26,6 +58,13 @@
                 <label>Light Duration</label>
                 <input type="range" id="lightDuration" min="2" max="10" step="0.5" value="5">
                 <span id="lightDurationValue">5s</span>
+            </div>
+            <div class="control toggle-control">
+                <label>Driving Mode</label>
+                <div class="toggle-group">
+                    <button id="realisticBtn" class="toggle-btn active">Realistic</button>
+                    <button id="perfectBtn" class="toggle-btn">Perfect</button>
+                </div>
             </div>
         </div>
     </div>
