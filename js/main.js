@@ -11,18 +11,45 @@ const config = {
     realisticMode: true
 };
 
-// Road configuration
-const roadY = 250;
-const roadHeight = 60;
-const roadAngle = -0.03;
+// Road configuration - True Isometric
+const roadWidth = 50;
+const isoAngle = Math.PI / 6; // 30 degrees
 
-// Traffic light
-const light = {
+// Intersection at center
+const intersection = {
     x: 500,
+    y: 200
+};
+
+// Road A: goes down-right (30° below horizontal)
+const roadA = {
+    angle: isoAngle,
+    dirX: Math.cos(isoAngle),
+    dirY: Math.sin(isoAngle)
+};
+
+// Road B: goes up-right (30° above horizontal)  
+const roadB = {
+    angle: -isoAngle,
+    dirX: Math.cos(-isoAngle),
+    dirY: Math.sin(-isoAngle)
+};
+
+// Traffic light system
+const light = {
+    activeRoad: 'A', // which road has green
     state: 'green',
     timer: 0,
     justTurnedGreen: false
 };
+
+// Get light state for a road
+function getLightState(road) {
+    if (road === light.activeRoad) {
+        return light.state;
+    }
+    return 'red';
+}
 
 // Metrics
 const metrics = {
@@ -49,7 +76,8 @@ let queueCtx, waitCtx, currentCtx, cycleCtx;
 
 // Vehicles array
 const vehicles = [];
-let spawnTimer = 0;
+let spawnTimerA = 0;
+let spawnTimerB = 0.5; // Offset so they don't spawn at exactly the same time
 
 // Rounded rectangle helper
 function roundRect(x, y, w, h, r) {
@@ -66,18 +94,12 @@ function roundRect(x, y, w, h, r) {
     ctx.closePath();
 }
 
-// Get Y position at X (for isometric road)
-function getRoadY(x) {
-    return roadY + (x - canvas.width / 2) * roadAngle;
-}
-
 // Update traffic light
 function updateLight(dt) {
     light.timer += dt;
     
     const greenDuration = config.lightDuration;
     const yellowDuration = 2;
-    const redDuration = config.lightDuration;
     
     if (light.state === 'green' && light.timer >= greenDuration) {
         light.timer = 0;
@@ -85,11 +107,13 @@ function updateLight(dt) {
     } else if (light.state === 'yellow' && light.timer >= yellowDuration) {
         light.timer = 0;
         light.state = 'red';
-        // Save cars passed when cycle ends (at red)
+        // Save cars passed when cycle ends
         metrics.carsPassedLastGreen = metrics.carsPassedThisGreen;
         metrics.carsPassedThisGreen = 0;
-    } else if (light.state === 'red' && light.timer >= redDuration) {
+    } else if (light.state === 'red' && light.timer >= 0.5) {
+        // Brief all-red, then switch roads
         light.timer = 0;
+        light.activeRoad = light.activeRoad === 'A' ? 'B' : 'A';
         light.state = 'green';
         light.justTurnedGreen = true;
     }
@@ -98,20 +122,29 @@ function updateLight(dt) {
     if (light.justTurnedGreen) {
         light.justTurnedGreen = false;
         
+        // Only affect cars on the road that just got green
+        const carsOnActiveRoad = vehicles.filter(v => v.road === light.activeRoad);
+        
         if (config.realisticMode) {
             // Realistic: staggered reaction delays based on queue position
-            const stoppedCars = vehicles
+            const stoppedCars = carsOnActiveRoad
                 .filter(v => v.waiting)
-                .sort((a, b) => b.x - a.x);
+                .sort((a, b) => b.progress - a.progress); // Higher progress = closer to intersection
             
             stoppedCars.forEach((v, index) => {
-                v.reactionDelay = 0.3 + Math.random() * 0.5 + index * (0.4 + Math.random() * 0.6);
+                // First car reacts faster, each subsequent car has cumulative delay
+                // Simulates each driver waiting to see the car ahead move
+                const baseDelay = index === 0 ? 0.2 : 0.5; // First car reacts quicker
+                const randomDelay = 0.3 + Math.random() * 0.5; // 0.3-0.8s random per car
+                const cumulativeDelay = index * (0.6 + Math.random() * 0.4); // Wave propagation
+                
+                v.reactionDelay = baseDelay + randomDelay + cumulativeDelay;
                 v.reactionTimer = 0;
                 v.canGo = false;
             });
         } else {
             // Perfect mode: everyone can go immediately
-            vehicles.forEach(v => {
+            carsOnActiveRoad.forEach(v => {
                 v.reactionDelay = 0;
                 v.reactionTimer = 0;
                 v.canGo = true;
@@ -120,16 +153,36 @@ function updateLight(dt) {
     }
 }
 
-// Spawn a new vehicle
-function spawnVehicle() {
+// Spawn a new vehicle on a specific road
+function spawnVehicle(road) {
     const hues = [0, 30, 200, 220, 280, 340];
     const hue = hues[Math.floor(Math.random() * hues.length)];
     
+    const roadConfig = road === 'A' ? roadA : roadB;
+    const spawnDist = 600; // Distance from intersection to spawn (extended for more queue space)
+    const carWidth = 40;
+    const minSpawnGap = 8; // Just enough to prevent direct overlap
+    
+    // Check if there's already a car too close to spawn point
+    const carsOnRoad = vehicles.filter(v => v.road === road);
+    for (const other of carsOnRoad) {
+        // Only prevent spawn if a car is literally at the spawn point
+        if (other.progress < carWidth + minSpawnGap) {
+            return; // Don't spawn, would overlap
+        }
+    }
+    
+    // Cars spawn at slower speed and accelerate naturally
+    const initialSpeed = config.carSpeed * 0.4;
+    
     vehicles.push({
-        x: -50,
-        width: 44,
-        height: 24,
-        speed: config.carSpeed,
+        road: road,
+        progress: 0, // Distance traveled along road
+        x: intersection.x - spawnDist * roadConfig.dirX,
+        y: intersection.y - spawnDist * roadConfig.dirY,
+        width: carWidth,
+        height: 20,
+        speed: initialSpeed, // Start slower, will accelerate
         hue: hue,
         waiting: false,
         waitStartTime: null,
@@ -141,15 +194,18 @@ function spawnVehicle() {
 
 // Update vehicles
 function updateVehicles(dt) {
-    const stopX = light.x - 50;
-    const minGap = 10;
+    const minGap = 15; // Minimum gap between cars (bumper to bumper)
+    const safeGap = minGap + 25; // Start slowing down at this gap
+    const spawnDist = 600; // Match spawn distance
+    const stopDist = roadWidth + 10; // Match where stop lines are drawn
+    const stopProgress = spawnDist - stopDist; // Stop at the stop line
     
     for (let i = vehicles.length - 1; i >= 0; i--) {
         const v = vehicles[i];
-        const front = v.x + v.width / 2;
-        const prevX = v.x;
+        const roadConfig = v.road === 'A' ? roadA : roadB;
+        const prevProgress = v.progress;
         
-        // Update reaction timer (only in realistic mode)
+        // Update reaction timer
         if (config.realisticMode && v.reactionDelay > 0) {
             v.reactionTimer += dt;
             if (v.reactionTimer >= v.reactionDelay) {
@@ -158,15 +214,16 @@ function updateVehicles(dt) {
             }
         }
         
-        // Find closest vehicle ahead (bumper to bumper)
+        // Find closest vehicle ahead on same road
         let carAhead = null;
         let gapToCarAhead = Infinity;
+        
         for (const other of vehicles) {
-            if (other !== v && other.x > v.x) {
-                const myFront = v.x + v.width / 2;
-                const theirBack = other.x - other.width / 2;
+            if (other !== v && other.road === v.road && other.progress > v.progress) {
+                const myFront = v.progress + v.width / 2;
+                const theirBack = other.progress - other.width / 2;
                 const gap = theirBack - myFront;
-                if (gap < gapToCarAhead) {
+                if (gap > 0 && gap < gapToCarAhead) {
                     gapToCarAhead = gap;
                     carAhead = other;
                 }
@@ -174,23 +231,27 @@ function updateVehicles(dt) {
         }
         
         // Determine stopping behavior
-        const atLight = front > stopX - 100 && front < stopX;
-        const lightIsRed = light.state !== 'green';
-        const safeGap = minGap + 10;
+        const frontProgress = v.progress + v.width / 2;
+        const atLight = frontProgress > stopProgress - 80 && frontProgress < stopProgress;
+        const myLightState = getLightState(v.road);
+        const lightIsRed = myLightState !== 'green';
         
         let shouldStop = false;
         let shouldSlow = false;
         
         if (config.realisticMode) {
-            // REALISTIC MODE
             const shouldStopAtLight = lightIsRed && atLight;
-            const waitingForReaction = atLight && !v.canGo;
+            
+            // Wait for reaction delay (wave effect through entire queue, not just at light)
+            const waitingForReaction = !v.canGo && v.waiting;
+            
+            // Also wait if car ahead hasn't started moving yet
+            const carAheadNotMoving = carAhead && !carAhead.canGo && carAhead.waiting;
             const carAheadStopped = carAhead && carAhead.speed < 5 && gapToCarAhead < 50;
             
-            shouldStop = shouldStopAtLight || waitingForReaction || carAheadStopped || gapToCarAhead < minGap;
+            shouldStop = shouldStopAtLight || waitingForReaction || carAheadNotMoving || carAheadStopped || gapToCarAhead < minGap;
             shouldSlow = gapToCarAhead < safeGap && !shouldStop;
         } else {
-            // PERFECT MODE - all cars go together
             const shouldStopAtLight = lightIsRed && atLight;
             
             shouldStop = shouldStopAtLight || gapToCarAhead < minGap;
@@ -198,7 +259,7 @@ function updateVehicles(dt) {
         }
         
         // Track waiting state for metrics
-        if (shouldStop && !v.waiting && front < stopX) {
+        if (shouldStop && !v.waiting && frontProgress < stopProgress) {
             v.waiting = true;
             v.waitStartTime = performance.now();
         } else if (!shouldStop && v.waiting) {
@@ -226,26 +287,34 @@ function updateVehicles(dt) {
             v.speed = Math.min(config.carSpeed, v.speed + accel * dt);
         }
         
-        v.x += v.speed * dt;
+        // Update progress and position
+        v.progress += v.speed * dt;
+        v.x = intersection.x - (spawnDist - v.progress) * roadConfig.dirX;
+        v.y = intersection.y - (spawnDist - v.progress) * roadConfig.dirY;
         
         // Hard collision prevention
         if (carAhead) {
-            const myFront = v.x + v.width / 2;
-            const theirBack = carAhead.x - carAhead.width / 2;
+            const myFront = v.progress + v.width / 2;
+            const theirBack = carAhead.progress - carAhead.width / 2;
             if (myFront > theirBack - minGap) {
-                v.x = theirBack - minGap - v.width / 2;
+                v.progress = theirBack - minGap - v.width / 2;
+                v.x = intersection.x - (spawnDist - v.progress) * roadConfig.dirX;
+                v.y = intersection.y - (spawnDist - v.progress) * roadConfig.dirY;
                 v.speed = Math.min(v.speed, carAhead.speed);
             }
         }
         
-        // Track cars passing through light during green or yellow
-        const prevFront = prevX + v.width / 2;
-        const newFront = v.x + v.width / 2;
-        if (prevFront <= light.x && newFront > light.x && (light.state === 'green' || light.state === 'yellow')) {
+        // Track cars passing through intersection
+        const prevFront = prevProgress + v.width / 2;
+        const newFront = v.progress + v.width / 2;
+        const myState = getLightState(v.road);
+        
+        if (prevFront <= spawnDist && newFront > spawnDist && (myState === 'green' || myState === 'yellow')) {
             metrics.carsPassedThisGreen++;
         }
         
-        if (v.x > canvas.width + 100) {
+        // Remove vehicles that have traveled far enough
+        if (v.progress > spawnDist + 400) {
             vehicles.splice(i, 1);
         }
     }
@@ -371,168 +440,248 @@ function updateGraphs(dt) {
     }
 }
 
-// Draw road
-function drawRoad() {
-    ctx.save();
+// Draw a single isometric road
+function drawIsometricRoad(roadConfig, length) {
+    const halfWidth = roadWidth / 2;
     
+    // Perpendicular direction for road width
+    const perpX = -roadConfig.dirY * halfWidth;
+    const perpY = roadConfig.dirX * halfWidth;
+    
+    // Start and end points
+    const startX = intersection.x - length * roadConfig.dirX;
+    const startY = intersection.y - length * roadConfig.dirY;
+    const endX = intersection.x + length * roadConfig.dirX;
+    const endY = intersection.y + length * roadConfig.dirY;
+    
+    // Shadow
     ctx.fillStyle = 'rgba(0, 0, 0, 0.06)';
     ctx.beginPath();
-    ctx.moveTo(0, getRoadY(0) - roadHeight / 2 + 8);
-    ctx.lineTo(canvas.width, getRoadY(canvas.width) - roadHeight / 2 + 8);
-    ctx.lineTo(canvas.width, getRoadY(canvas.width) + roadHeight / 2 + 8);
-    ctx.lineTo(0, getRoadY(0) + roadHeight / 2 + 8);
+    ctx.moveTo(startX + perpX + 5, startY + perpY + 5);
+    ctx.lineTo(endX + perpX + 5, endY + perpY + 5);
+    ctx.lineTo(endX - perpX + 5, endY - perpY + 5);
+    ctx.lineTo(startX - perpX + 5, startY - perpY + 5);
     ctx.closePath();
     ctx.fill();
     
+    // Road surface
     ctx.fillStyle = '#e0e0e0';
     ctx.beginPath();
-    ctx.moveTo(0, getRoadY(0) - roadHeight / 2);
-    ctx.lineTo(canvas.width, getRoadY(canvas.width) - roadHeight / 2);
-    ctx.lineTo(canvas.width, getRoadY(canvas.width) + roadHeight / 2);
-    ctx.lineTo(0, getRoadY(0) + roadHeight / 2);
+    ctx.moveTo(startX + perpX, startY + perpY);
+    ctx.lineTo(endX + perpX, endY + perpY);
+    ctx.lineTo(endX - perpX, endY - perpY);
+    ctx.lineTo(startX - perpX, startY - perpY);
     ctx.closePath();
     ctx.fill();
     
+    // Road edges
     ctx.strokeStyle = '#bbb';
     ctx.lineWidth = 1.5;
     ctx.beginPath();
-    ctx.moveTo(0, getRoadY(0) - roadHeight / 2);
-    ctx.lineTo(canvas.width, getRoadY(canvas.width) - roadHeight / 2);
-    ctx.moveTo(0, getRoadY(0) + roadHeight / 2);
-    ctx.lineTo(canvas.width, getRoadY(canvas.width) + roadHeight / 2);
+    ctx.moveTo(startX + perpX, startY + perpY);
+    ctx.lineTo(endX + perpX, endY + perpY);
+    ctx.moveTo(startX - perpX, startY - perpY);
+    ctx.lineTo(endX - perpX, endY - perpY);
     ctx.stroke();
     
+    // Center line (dashed, skip intersection area)
     ctx.strokeStyle = '#ccc';
     ctx.lineWidth = 2;
-    ctx.setLineDash([20, 15]);
+    ctx.setLineDash([15, 10]);
     ctx.beginPath();
-    ctx.moveTo(0, getRoadY(0));
-    ctx.lineTo(canvas.width, getRoadY(canvas.width));
+    // Before intersection
+    ctx.moveTo(startX, startY);
+    ctx.lineTo(intersection.x - 40 * roadConfig.dirX, intersection.y - 40 * roadConfig.dirY);
+    // After intersection
+    ctx.moveTo(intersection.x + 40 * roadConfig.dirX, intersection.y + 40 * roadConfig.dirY);
+    ctx.lineTo(endX, endY);
     ctx.stroke();
     ctx.setLineDash([]);
+}
+
+// Draw both roads
+function drawRoad() {
+    ctx.save();
+    
+    // Draw Road B first (behind, going up-right)
+    drawIsometricRoad(roadB, 650);
+    
+    // Draw Road A (in front, going down-right)
+    drawIsometricRoad(roadA, 650);
+    
+    // Intersection overlay (slightly darker)
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.03)';
+    ctx.beginPath();
+    ctx.arc(intersection.x, intersection.y, roadWidth * 0.8, 0, Math.PI * 2);
+    ctx.fill();
+    
+    // Draw stop lines (under the cars)
+    const stopDist = roadWidth + 10;
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
+    ctx.lineWidth = 4;
+
+    // Stop line for Road A
+    const stopAX = intersection.x - stopDist * roadA.dirX;
+    const stopAY = intersection.y - stopDist * roadA.dirY;
+    const perpAX = -roadA.dirY * (roadWidth / 2 - 3);
+    const perpAY = roadA.dirX * (roadWidth / 2 - 3);
+    ctx.beginPath();
+    ctx.moveTo(stopAX + perpAX, stopAY + perpAY);
+    ctx.lineTo(stopAX - perpAX, stopAY - perpAY);
+    ctx.stroke();
+
+    // Stop line for Road B
+    const stopBX = intersection.x - stopDist * roadB.dirX;
+    const stopBY = intersection.y - stopDist * roadB.dirY;
+    const perpBX = -roadB.dirY * (roadWidth / 2 - 3);
+    const perpBY = roadB.dirX * (roadWidth / 2 - 3);
+    ctx.beginPath();
+    ctx.moveTo(stopBX + perpBX, stopBY + perpBY);
+    ctx.lineTo(stopBX - perpBX, stopBY - perpBY);
+    ctx.stroke();
     
     ctx.restore();
 }
 
-// Draw traffic light
-function drawLight() {
-    const x = light.x;
-    const baseY = getRoadY(x);
-    
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.1)';
-    ctx.beginPath();
-    ctx.ellipse(x + 8, baseY - roadHeight / 2 + 5, 12, 4, 0, 0, Math.PI * 2);
-    ctx.fill();
-    
-    ctx.fillStyle = '#888';
-    roundRect(x - 4, baseY - roadHeight / 2 - 100, 8, 100, 4);
-    ctx.fill();
-    
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.15)';
-    roundRect(x - 16 + 4, baseY - roadHeight / 2 - 95 + 4, 32, 70, 8);
-    ctx.fill();
-    
-    ctx.fillStyle = '#666';
-    roundRect(x - 16, baseY - roadHeight / 2 - 95, 32, 70, 8);
-    ctx.fill();
-    
-    ctx.fillStyle = '#555';
-    roundRect(x - 12, baseY - roadHeight / 2 - 91, 24, 62, 6);
-    ctx.fill();
+// Draw a single traffic light at a position (facing toward oncoming traffic)
+function drawSingleLight(x, y, state, facingAngle) {
+    ctx.save();
+    ctx.translate(x, y);
     
     const lightColors = {
-        red: { on: '#ff6b6b', off: '#4a3535' },
-        yellow: { on: '#ffd93d', off: '#4a4535' },
-        green: { on: '#6bcb77', off: '#354a38' }
+        red: { on: '#ff4444', off: '#3a2020' },
+        yellow: { on: '#ffcc00', off: '#3a3520' },
+        green: { on: '#44cc55', off: '#203a25' }
     };
     
+    // Pole shadow
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.15)';
+    ctx.beginPath();
+    ctx.ellipse(4, 4, 6, 3, 0, 0, Math.PI * 2);
+    ctx.fill();
+    
+    // Pole
+    ctx.fillStyle = '#666';
+    ctx.fillRect(-3, -75, 6, 80);
+    
+    // Light box background (dark, solid)
+    ctx.fillStyle = '#2a2a2a';
+    roundRect(-12, -72, 24, 58, 4);
+    ctx.fill();
+    
+    // Light box border
+    ctx.strokeStyle = '#444';
+    ctx.lineWidth = 2;
+    roundRect(-12, -72, 24, 58, 4);
+    ctx.stroke();
+    
+    // Inner panel
+    ctx.fillStyle = '#1a1a1a';
+    roundRect(-9, -69, 18, 52, 3);
+    ctx.fill();
+    
+    // Lights (red on top, yellow middle, green bottom)
     const states = ['red', 'yellow', 'green'];
     states.forEach((s, i) => {
-        const ly = baseY - roadHeight / 2 - 80 + i * 20;
-        const isOn = light.state === s;
+        const ly = -57 + i * 16;
+        const isOn = state === s;
         
+        // Glow effect when on
         if (isOn) {
-            const gradient = ctx.createRadialGradient(x, ly, 0, x, ly, 20);
-            gradient.addColorStop(0, lightColors[s].on + '40');
-            gradient.addColorStop(1, 'transparent');
-            ctx.fillStyle = gradient;
+            ctx.fillStyle = lightColors[s].on + '30';
             ctx.beginPath();
-            ctx.arc(x, ly, 20, 0, Math.PI * 2);
+            ctx.arc(0, ly, 14, 0, Math.PI * 2);
             ctx.fill();
         }
         
+        // Light circle
         ctx.beginPath();
-        ctx.arc(x, ly, 8, 0, Math.PI * 2);
+        ctx.arc(0, ly, 6, 0, Math.PI * 2);
         ctx.fillStyle = isOn ? lightColors[s].on : lightColors[s].off;
         ctx.fill();
         
+        // Highlight when on
         if (isOn) {
             ctx.beginPath();
-            ctx.arc(x - 2, ly - 2, 3, 0, Math.PI * 2);
-            ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+            ctx.arc(-2, ly - 2, 2, 0, Math.PI * 2);
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
             ctx.fill();
         }
     });
     
-    ctx.strokeStyle = 'rgba(0, 0, 0, 0.2)';
-    ctx.lineWidth = 3;
-    ctx.lineCap = 'round';
-    ctx.setLineDash([8, 8]);
-    ctx.beginPath();
-    ctx.moveTo(x, baseY - roadHeight / 2 + 5);
-    ctx.lineTo(x, baseY + roadHeight / 2 - 5);
-    ctx.stroke();
-    ctx.setLineDash([]);
-    ctx.lineCap = 'butt';
+    ctx.restore();
+}
+
+// Draw traffic lights for both roads (Canadian style - lights on far side of intersection)
+function drawLight() {
+    const lightDist = roadWidth + 20; // Lights on far side (after intersection)
+    
+    // Light for Road A - positioned on FAR side of intersection (Canadian style)
+    // On the RIGHT side of the road (from driver's perspective traveling along road)
+    // Driver's right = (-dirY, dirX) when traveling in direction (dirX, dirY)
+    const lightAX = intersection.x + lightDist * roadA.dirX - roadWidth * 0.7 * roadA.dirY;
+    const lightAY = intersection.y + lightDist * roadA.dirY + roadWidth * 0.7 * roadA.dirX;
+    drawSingleLight(lightAX, lightAY, getLightState('A'), 0);
+
+    // Light for Road B - positioned on FAR side of intersection (Canadian style)
+    // On the RIGHT side of the road (from driver's perspective)
+    const lightBX = intersection.x + lightDist * roadB.dirX - roadWidth * 0.7 * roadB.dirY;
+    const lightBY = intersection.y + lightDist * roadB.dirY + roadWidth * 0.7 * roadB.dirX;
+    drawSingleLight(lightBX, lightBY, getLightState('B'), 0);
 }
 
 // Draw vehicles
 function drawVehicles() {
-    const sorted = [...vehicles].sort((a, b) => a.x - b.x);
-    
+    // Sort by y position for proper layering
+    const sorted = [...vehicles].sort((a, b) => a.y - b.y);
+
     sorted.forEach(v => {
-        const vx = v.x - v.width / 2;
-        const vy = getRoadY(v.x) - v.height / 2;
+        const roadConfig = v.road === 'A' ? roadA : roadB;
         
         ctx.save();
+        ctx.translate(v.x, v.y);
+        ctx.rotate(roadConfig.angle);
         
+        const vx = -v.width / 2;
+        const vy = -v.height / 2;
+
+        // Shadow
         ctx.fillStyle = 'rgba(0, 0, 0, 0.12)';
         ctx.beginPath();
-        ctx.ellipse(v.x + 4, vy + v.height + 6, v.width / 2 - 2, 6, 0, 0, Math.PI * 2);
+        ctx.ellipse(4, vy + v.height + 5, v.width / 2 - 2, 5, 0, 0, Math.PI * 2);
         ctx.fill();
-        
+
         const bodyColor = `hsl(${v.hue}, 45%, 60%)`;
         const darkColor = `hsl(${v.hue}, 45%, 45%)`;
         const lightColor = `hsl(${v.hue}, 45%, 75%)`;
-        
+
+        // Body bottom
         ctx.fillStyle = darkColor;
-        roundRect(vx, vy + v.height * 0.4, v.width, v.height * 0.6, 6);
+        roundRect(vx, vy + v.height * 0.4, v.width, v.height * 0.6, 5);
         ctx.fill();
-        
+
+        // Body top
         ctx.fillStyle = bodyColor;
-        roundRect(vx + 2, vy, v.width - 4, v.height * 0.65, 8);
+        roundRect(vx + 2, vy, v.width - 4, v.height * 0.65, 6);
         ctx.fill();
-        
+
+        // Hood
         ctx.fillStyle = lightColor;
-        roundRect(vx + v.width * 0.25, vy + 2, v.width * 0.45, v.height * 0.35, 5);
+        roundRect(vx + v.width * 0.25, vy + 2, v.width * 0.4, v.height * 0.3, 4);
         ctx.fill();
-        
+
+        // Windshield
         ctx.fillStyle = 'rgba(200, 220, 240, 0.7)';
-        roundRect(vx + v.width * 0.55, vy + 4, v.width * 0.3, v.height * 0.35, 4);
+        roundRect(vx + v.width * 0.55, vy + 3, v.width * 0.28, v.height * 0.3, 3);
         ctx.fill();
-        
+
+        // Wheels
         ctx.fillStyle = '#444';
         ctx.beginPath();
-        ctx.arc(vx + 10, vy + v.height - 2, 5, 0, Math.PI * 2);
-        ctx.arc(vx + v.width - 10, vy + v.height - 2, 5, 0, Math.PI * 2);
+        ctx.arc(vx + 8, vy + v.height - 2, 4, 0, Math.PI * 2);
+        ctx.arc(vx + v.width - 8, vy + v.height - 2, 4, 0, Math.PI * 2);
         ctx.fill();
-        
-        ctx.fillStyle = '#666';
-        ctx.beginPath();
-        ctx.arc(vx + 10, vy + v.height - 3, 2, 0, Math.PI * 2);
-        ctx.arc(vx + v.width - 10, vy + v.height - 3, 2, 0, Math.PI * 2);
-        ctx.fill();
-        
+
         ctx.restore();
     });
 }
@@ -575,13 +724,21 @@ let lastTime = 0;
 function loop(time) {
     const dt = Math.min((time - lastTime) / 1000, 0.1);
     lastTime = time;
-    
-    spawnTimer += dt;
-    if (spawnTimer > 1 / config.spawnRate) {
-        spawnTimer = 0;
-        spawnVehicle();
+
+    // Spawn on Road A
+    spawnTimerA += dt;
+    if (spawnTimerA > 1 / config.spawnRate) {
+        spawnTimerA = 0;
+        spawnVehicle('A');
     }
     
+    // Spawn on Road B
+    spawnTimerB += dt;
+    if (spawnTimerB > 1 / config.spawnRate) {
+        spawnTimerB = 0;
+        spawnVehicle('B');
+    }
+
     updateLight(dt);
     updateVehicles(dt);
     updateMetricsDisplay();
@@ -589,9 +746,9 @@ function loop(time) {
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     drawRoad();
-    drawLight();
     drawVehicles();
-    
+    drawLight(); // Draw lights LAST so they appear on top of roads
+
     requestAnimationFrame(loop);
 }
 
