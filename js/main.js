@@ -59,6 +59,35 @@ const metrics = {
     carsPassedLastGreen: 0
 };
 
+// Long-term statistics (tracked per mode)
+const longTermStats = {
+    realistic: {
+        totalCarsPassed: 0,
+        totalCycles: 0,
+        carsPerCycleSum: 0,
+        peakQueue: 0,
+        queueSamples: [],
+        simTime: 0,
+        greenTimeUsed: 0, // Time when cars are actually passing
+        totalGreenTime: 0
+    },
+    perfect: {
+        totalCarsPassed: 0,
+        totalCycles: 0,
+        carsPerCycleSum: 0,
+        peakQueue: 0,
+        queueSamples: [],
+        simTime: 0,
+        greenTimeUsed: 0,
+        totalGreenTime: 0
+    }
+};
+
+// Get current mode's stats
+function getCurrentStats() {
+    return config.realisticMode ? longTermStats.realistic : longTermStats.perfect;
+}
+
 // Graph data history
 const graphData = {
     queue: [],
@@ -109,6 +138,13 @@ function updateLight(dt) {
         light.state = 'red';
         // Save cars passed when cycle ends
         metrics.carsPassedLastGreen = metrics.carsPassedThisGreen;
+        
+        // Update long-term stats for current mode
+        const stats = getCurrentStats();
+        stats.totalCarsPassed += metrics.carsPassedThisGreen;
+        stats.totalCycles++;
+        stats.carsPerCycleSum += metrics.carsPassedThisGreen;
+        
         metrics.carsPassedThisGreen = 0;
     } else if (light.state === 'red' && light.timer >= 0.5) {
         // Brief all-red, then switch roads
@@ -337,6 +373,91 @@ function updateMetricsDisplay() {
     document.getElementById('avgWaitTime').textContent = getAvgWaitTime().toFixed(1) + 's';
     document.getElementById('carsPassedCurrent').textContent = metrics.carsPassedThisGreen;
     document.getElementById('carsPassedLastGreen').textContent = metrics.carsPassedLastGreen;
+}
+
+// Update long-term statistics
+function updateLongTermStats(dt) {
+    const stats = getCurrentStats();
+    const queueLen = getQueueLength();
+    
+    // Track simulation time
+    stats.simTime += dt;
+    
+    // Track peak queue
+    if (queueLen > stats.peakQueue) {
+        stats.peakQueue = queueLen;
+    }
+    
+    // Sample queue for average (every 0.5s)
+    if (stats.queueSamples.length === 0 || stats.simTime % 0.5 < dt) {
+        stats.queueSamples.push(queueLen);
+        // Keep last 1000 samples
+        if (stats.queueSamples.length > 1000) {
+            stats.queueSamples.shift();
+        }
+    }
+    
+    // Track green light utilization
+    if (light.state === 'green') {
+        stats.totalGreenTime += dt;
+        // Check if any car is currently passing (near or past intersection)
+        const passing = vehicles.some(v => {
+            const frontProgress = v.progress + v.width / 2;
+            return frontProgress > 530 && frontProgress < 620; // Near intersection
+        });
+        if (passing) {
+            stats.greenTimeUsed += dt;
+        }
+    }
+}
+
+// Format time as mm:ss
+function formatTime(seconds) {
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+}
+
+// Update long-term stats display
+function updateLongTermDisplay() {
+    const r = longTermStats.realistic;
+    const p = longTermStats.perfect;
+    
+    // Total cars passed
+    document.getElementById('totalCarsRealistic').textContent = r.totalCarsPassed;
+    document.getElementById('totalCarsPerfect').textContent = p.totalCarsPassed;
+    
+    // Throughput (cars per minute)
+    const rThroughput = r.simTime > 0 ? (r.totalCarsPassed / r.simTime * 60).toFixed(1) : '0.0';
+    const pThroughput = p.simTime > 0 ? (p.totalCarsPassed / p.simTime * 60).toFixed(1) : '0.0';
+    document.getElementById('throughputRealistic').textContent = rThroughput;
+    document.getElementById('throughputPerfect').textContent = pThroughput;
+    
+    // Peak queue
+    document.getElementById('peakQueueRealistic').textContent = r.peakQueue;
+    document.getElementById('peakQueuePerfect').textContent = p.peakQueue;
+    
+    // Avg cars per cycle
+    const rAvgCycle = r.totalCycles > 0 ? (r.carsPerCycleSum / r.totalCycles).toFixed(1) : '0.0';
+    const pAvgCycle = p.totalCycles > 0 ? (p.carsPerCycleSum / p.totalCycles).toFixed(1) : '0.0';
+    document.getElementById('avgCycleRealistic').textContent = rAvgCycle;
+    document.getElementById('avgCyclePerfect').textContent = pAvgCycle;
+    
+    // Avg queue length
+    const rAvgQueue = r.queueSamples.length > 0 ? (r.queueSamples.reduce((a, b) => a + b, 0) / r.queueSamples.length).toFixed(1) : '0.0';
+    const pAvgQueue = p.queueSamples.length > 0 ? (p.queueSamples.reduce((a, b) => a + b, 0) / p.queueSamples.length).toFixed(1) : '0.0';
+    document.getElementById('avgQueueRealistic').textContent = rAvgQueue;
+    document.getElementById('avgQueuePerfect').textContent = pAvgQueue;
+    
+    // Simulation time
+    document.getElementById('simTimeRealistic').textContent = formatTime(r.simTime);
+    document.getElementById('simTimePerfect').textContent = formatTime(p.simTime);
+    
+    // Green light utilization
+    const rUtil = r.totalGreenTime > 0 ? (r.greenTimeUsed / r.totalGreenTime * 100).toFixed(0) : '0';
+    const pUtil = p.totalGreenTime > 0 ? (p.greenTimeUsed / p.totalGreenTime * 100).toFixed(0) : '0';
+    document.getElementById('utilizationRealistic').textContent = rUtil + '%';
+    document.getElementById('utilizationPerfect').textContent = pUtil + '%';
 }
 
 // Draw a graph with trendline
@@ -741,7 +862,9 @@ function loop(time) {
 
     updateLight(dt);
     updateVehicles(dt);
+    updateLongTermStats(dt);
     updateMetricsDisplay();
+    updateLongTermDisplay();
     updateGraphs(dt);
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
