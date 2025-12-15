@@ -3,12 +3,17 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Streetlight Simulator</title>
+    <title>Intersection Simulator</title>
     <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
     <div class="container">
-        <h1>Streetlight Simulator</h1>
+        <h1>Intersection Simulator</h1>
+        
+        <div class="sim-tabs">
+            <button id="streetlightTab" class="sim-tab active">Streetlight</button>
+            <button id="roundaboutTab" class="sim-tab">Roundabout</button>
+        </div>
         
         <div class="metrics">
             <div class="metric-with-graph">
@@ -54,7 +59,7 @@
                 <input type="range" id="carSpeed" min="50" max="200" step="10" value="100">
                 <span id="carSpeedValue">100</span>
             </div>
-            <div class="control">
+            <div class="control" id="lightDurationControl">
                 <label>Light Duration</label>
                 <input type="range" id="lightDuration" min="2" max="10" step="0.5" value="5">
                 <span id="lightDurationValue">5s</span>
@@ -74,6 +79,13 @@
                 <thead>
                     <tr>
                         <th>Metric</th>
+                        <th colspan="2">Streetlight</th>
+                        <th colspan="2">Roundabout</th>
+                    </tr>
+                    <tr class="sub-header">
+                        <th></th>
+                        <th>Realistic</th>
+                        <th>Perfect</th>
                         <th>Realistic</th>
                         <th>Perfect</th>
                     </tr>
@@ -81,38 +93,52 @@
                 <tbody>
                     <tr>
                         <td>Total Cars Passed</td>
-                        <td id="totalCarsRealistic">0</td>
-                        <td id="totalCarsPerfect">0</td>
+                        <td id="totalCarsSLR">0</td>
+                        <td id="totalCarsSLP">0</td>
+                        <td id="totalCarsRBR">0</td>
+                        <td id="totalCarsRBP">0</td>
                     </tr>
                     <tr>
                         <td>Throughput (cars/min)</td>
-                        <td id="throughputRealistic">0.0</td>
-                        <td id="throughputPerfect">0.0</td>
+                        <td id="throughputSLR">0.0</td>
+                        <td id="throughputSLP">0.0</td>
+                        <td id="throughputRBR">0.0</td>
+                        <td id="throughputRBP">0.0</td>
                     </tr>
                     <tr>
                         <td>Peak Queue</td>
-                        <td id="peakQueueRealistic">0</td>
-                        <td id="peakQueuePerfect">0</td>
+                        <td id="peakQueueSLR">0</td>
+                        <td id="peakQueueSLP">0</td>
+                        <td id="peakQueueRBR">0</td>
+                        <td id="peakQueueRBP">0</td>
                     </tr>
                     <tr>
                         <td>Avg Cars/Cycle</td>
-                        <td id="avgCycleRealistic">0.0</td>
-                        <td id="avgCyclePerfect">0.0</td>
+                        <td id="avgCycleSLR">0.0</td>
+                        <td id="avgCycleSLP">0.0</td>
+                        <td id="avgCycleRBR">-</td>
+                        <td id="avgCycleRBP">-</td>
                     </tr>
                     <tr>
                         <td>Avg Queue Length</td>
-                        <td id="avgQueueRealistic">0.0</td>
-                        <td id="avgQueuePerfect">0.0</td>
+                        <td id="avgQueueSLR">0.0</td>
+                        <td id="avgQueueSLP">0.0</td>
+                        <td id="avgQueueRBR">0.0</td>
+                        <td id="avgQueueRBP">0.0</td>
                     </tr>
                     <tr>
                         <td>Simulation Time</td>
-                        <td id="simTimeRealistic">0:00</td>
-                        <td id="simTimePerfect">0:00</td>
+                        <td id="simTimeSLR">0:00</td>
+                        <td id="simTimeSLP">0:00</td>
+                        <td id="simTimeRBR">0:00</td>
+                        <td id="simTimeRBP">0:00</td>
                     </tr>
                     <tr>
-                        <td>Green Utilization</td>
-                        <td id="utilizationRealistic">0%</td>
-                        <td id="utilizationPerfect">0%</td>
+                        <td>Utilization</td>
+                        <td id="utilizationSLR">0%</td>
+                        <td id="utilizationSLP">0%</td>
+                        <td id="utilizationRBR">0%</td>
+                        <td id="utilizationRBP">0%</td>
                     </tr>
                 </tbody>
             </table>
